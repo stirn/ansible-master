@@ -1,0 +1,3 @@
+[servers]
+ansible-ziel1 ansible_connection=ssh ansible_user=root
+ansible-ziel2 ansible_connection=ssh ansible_user=root
