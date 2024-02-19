@@ -2,7 +2,6 @@
 
 script_path=$(readlink -f "$0")
 script_dir=$(dirname "$script_path")
-ex_dir=$(basename $0 .sh)
 
 docker_compose_yml=${script_dir}/docker-compose.yml
 
@@ -10,7 +9,17 @@ TARGET_COUNT=2
 TARGET_BASE_NAME="ansible_ziel"
 MASTER_BASE_NAME="ansible_meister"
 
+ANSIBLE_SSH_PORT=30022
+SEMAPHORE_HTTP_PORT=5000
+
 PASSWORD_FILE="${script_dir}/pass.json"
+HOST_SSH_KEY=$(cat ~/.ssh/id_ed25519.pub)
+
+GIT_REPO=$(git remote get-url --all origin)
+
+dexec() {
+    docker exec -i "$1" bash -c "$2"
+}
 
 docker compose down
 
@@ -36,9 +45,6 @@ EOF
 
 fi
 
-ANSIBLE_SSH_PORT=30022
-SEMAPHORE_HTTP_PORT=5000
-
 cat <<EOF >"${docker_compose_yml}" &&
 \
 version: '3.1'
@@ -54,7 +60,7 @@ services:
       - ${ANSIBLE_SSH_PORT}:22
     command: >
       bash -c "apt-get update \
-        && apt-get install -y openssh-server \
+        && DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server git ansible \
         && mkdir -p /run/sshd && chmod 0755 /run/sshd \
         && service ssh start \
         && tail -f /dev/null"
@@ -151,10 +157,6 @@ docker compose up -d &&
         exit 1
     }
 
-dexec() {
-    docker exec -i "$1" bash -c "$2"
-}
-
 echo
 echo "--- NOW WE WORK INSIDE CONTAINERS"
 echo
@@ -182,63 +184,9 @@ while [ $counter -le ${TARGET_COUNT} ]; do
     ((counter++))
 done
 
-exit 0
-
-exec-server 'cat > /kafka/kafka-init.sh' <<EOF
+dexec ansible_meister "cat > ~/clone.sh" <<EOF
 #!/bin/bash
-cd \$(dirname \$(realpath \$0))/\$(ls | grep kafka_)
-bin/zookeeper-server-start.sh -daemon config/zookeeper.properties && \
-    echo "--- ${ex_dir}-server: ZooKeeper started"
-bin/kafka-server-start.sh -daemon config/server.properties && \
-    echo "--- ${ex_dir}-server: Kafka server started"
-bin/kafka-topics.sh --create --topic syslog --bootstrap-server localhost:9092 && \
-    echo "--- ${ex_dir}-server: Topic syslog created"
+git clone $GIT_REPO
 EOF
-exec-server 'chmod +x /kafka/kafka-init.sh'
 
-exec-server 'cat > /kafka/rsyslog-init.sh' <<EOF
-#!/bin/bash
-sed "/module(load=\"imklog\"/s/module/#module/" -i.bak /etc/rsyslog.conf
-sed "/module(load=\"imudp\"/s/#module/module/" -i.bak /etc/rsyslog.conf
-sed "/input(type=\"imudp\"/s/#input/input/" -i.bak /etc/rsyslog.conf
-sed "/module(load=\"imtcp\"/s/#module/module/" -i.bak /etc/rsyslog.conf
-sed "/input(type=\"imtcp\"/s/#input/input/" -i.bak /etc/rsyslog.conf
-cat <<EOF_rsyslog >> /etc/rsyslog.conf
-module(load="omkafka")
-template(name="json-template"
-  type="list") {
-    constant(value="{")
-    constant(value="\"timestamp\":\"")
-    property(name="timereported" dateFormat="rfc3339")
-    constant(value="\",\"message\":\"")
-    property(name="msg")
-    constant(value="\"}\n")
-}
-action(
-  broker=["localhost:9092"]
-  topic="rsyslog"
-  type="omkafka"
-  template="json-template"
-)
-EOF_rsyslog
-service rsyslog start && \
-    echo "--- ${ex_dir}-server: rsyslog started"
-EOF
-exec-server 'chmod +x /kafka/rsyslog-init.sh'
-
-exec-client 'cat > /kafka/rsyslog-init.sh' <<EOF
-#!/bin/bash
-sed "/module(load=\"imklog\"/s/module/#module/" -i.bak /etc/rsyslog.conf
-sed "/module(load=\"imudp\"/s/#module/module/" -i.bak /etc/rsyslog.conf
-sed "/input(type=\"imudp\"/s/#input/input/" -i.bak /etc/rsyslog.conf
-sed "/module(load=\"imtcp\"/s/#module/module/" -i.bak /etc/rsyslog.conf
-sed "/input(type=\"imtcp\"/s/#input/input/" -i.bak /etc/rsyslog.conf
-echo "*.* @${ex_dir}-server:514" >> /etc/rsyslog.conf
-service rsyslog start && \
-    echo "--- ${ex_dir}-client: rsyslog started"
-EOF
-exec-client 'chmod +x /kafka/rsyslog-init.sh'
-
-exec-server '/kafka/./kafka-init.sh'
-exec-server '/kafka/./rsyslog-init.sh'
-exec-client '/kafka/./rsyslog-init.sh'
+dexec ansible_meister "echo $HOST_SSH_KEY > ~/.ssh/authorized_keys"
