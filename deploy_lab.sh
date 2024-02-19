@@ -170,6 +170,9 @@ done
 dexec ansible_meister "mkdir ~/.ssh && ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519"
 MEISTER_PUBLIC_KEY=$(dexec ansible_meister "cat ~/.ssh/id_ed25519.pub")
 
+new_pass_file=$(jq --arg key "MEISTER_PUBLIC_KEY" --arg value "$MEISTER_PUBLIC_KEY" '. + {($key): $value}' "$PASSWORD_FILE")
+echo "$new_pass_file" >"$PASSWORD_FILE"
+
 echo "--- TARGETS"
 while [ $counter -le ${TARGET_COUNT} ]; do
     echo "----- Adding MEISTER_PUBLIC_KEY to ${TARGET_BASE_NAME}${counter} ssh authorized keys"
