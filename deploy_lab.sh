@@ -9,6 +9,8 @@ TARGET_COUNT=2
 TARGET_BASE_NAME="ansible_ziel"
 MASTER_BASE_NAME="ansible_meister"
 
+DB_VOLUME_NAME="semaphore-postgres"
+
 ANSIBLE_SSH_PORT=30022
 SEMAPHORE_HTTP_PORT=5000
 
@@ -18,24 +20,26 @@ HOST_SSH_KEY=$(cat ~/.ssh/id_ed25519.pub)
 GIT_REPO=$(git remote get-url --all origin)
 
 dexec() {
-    docker exec -i "$1" bash -c "$2"
+  docker exec -i "$1" bash -c "$2"
 }
 
 docker compose down
+docker volume rm "$(basename ${script_dir})"_${DB_VOLUME_NAME}
+rm -rf "${PASSWORD_FILE}" "${docker_compose_yml}"
 
 if [ -f "${PASSWORD_FILE}" ]; then
-    echo "--- Reading passwords from ${PASSWORD_FILE}"
-    POSTGRES_PASSWORD=$(jq -r '.POSTGRES_PASSWORD' "${PASSWORD_FILE}")
-    SEMAPHORE_ADMIN_PASSWORD=$(jq -r '.SEMAPHORE_ADMIN_PASSWORD' "${PASSWORD_FILE}")
-    SEMAPHORE_ACCESS_KEY_ENCRYPTION=$(jq -r '.SEMAPHORE_ACCESS_KEY_ENCRYPTION' "${PASSWORD_FILE}")
+  echo "--- Reading passwords from ${PASSWORD_FILE}"
+  POSTGRES_PASSWORD=$(jq -r '.POSTGRES_PASSWORD' "${PASSWORD_FILE}")
+  SEMAPHORE_ADMIN_PASSWORD=$(jq -r '.SEMAPHORE_ADMIN_PASSWORD' "${PASSWORD_FILE}")
+  SEMAPHORE_ACCESS_KEY_ENCRYPTION=$(jq -r '.SEMAPHORE_ACCESS_KEY_ENCRYPTION' "${PASSWORD_FILE}")
 
 else
-    echo "--- Creating passwords file ${PASSWORD_FILE}"
-    POSTGRES_PASSWORD=$(cat /dev/urandom | LC_CTYPE=C tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
-    SEMAPHORE_ADMIN_PASSWORD=$(cat /dev/urandom | LC_CTYPE=C tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
-    SEMAPHORE_ACCESS_KEY_ENCRYPTION=$(cat /dev/urandom | LC_CTYPE=C tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+  echo "--- Creating passwords file ${PASSWORD_FILE}"
+  POSTGRES_PASSWORD=$(cat /dev/urandom | LC_CTYPE=C tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
+  SEMAPHORE_ADMIN_PASSWORD=$(cat /dev/urandom | LC_CTYPE=C tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
+  SEMAPHORE_ACCESS_KEY_ENCRYPTION=$(cat /dev/urandom | LC_CTYPE=C tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
 
-    cat <<EOF >"${PASSWORD_FILE}"
+  cat <<EOF >"${PASSWORD_FILE}"
 {
 "POSTGRES_PASSWORD": "$POSTGRES_PASSWORD",
 "SEMAPHORE_ADMIN_PASSWORD": "$SEMAPHORE_ADMIN_PASSWORD",
@@ -99,7 +103,7 @@ cat <<EOF >>"${docker_compose_yml}" &&
     networks:
         - 'ansible'
     volumes: 
-      - semaphore-postgres:/var/lib/postgresql/data
+      - ${DB_VOLUME_NAME}:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: semaphore
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -145,17 +149,17 @@ networks:
     driver: bridge
 
 EOF
-    echo "--- Appended the rest to ${docker_compose_yml}"
+  echo "--- Appended the rest to ${docker_compose_yml}"
 
 docker compose up -d &&
-    {
-        sleep 10
-        echo "--- CONTAINERS DONE"
-    } ||
-    {
-        echo "--- FAILED!"
-        exit 1
-    }
+  {
+    sleep 10
+    echo "--- CONTAINERS DONE"
+  } ||
+  {
+    echo "--- FAILED!"
+    exit 1
+  }
 
 echo
 echo "--- NOW WE WORK INSIDE CONTAINERS"
@@ -164,29 +168,39 @@ echo
 echo "--- ANSIBLE MEISTER"
 
 counter=1
-until dexec ansible_meister "apt-get check" 2>/dev/null; do
-    echo "----- Waiting for container to install software..."
-    sleep 3
+until dexec ${MASTER_BASE_NAME} "apt-get check" 2>/dev/null; do
+  echo "----- Waiting for container to install software..."
+  sleep 3
 done
 
-dexec ansible_meister "mkdir ~/.ssh && ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519"
-MEISTER_PUBLIC_KEY=$(dexec ansible_meister "cat ~/.ssh/id_ed25519.pub")
+dexec ${MASTER_BASE_NAME} "mkdir ~/.ssh && ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519"
+MEISTER_PUBLIC_KEY=$(dexec ${MASTER_BASE_NAME} "cat ~/.ssh/id_ed25519.pub")
 
 new_pass_file=$(jq --arg key "MEISTER_PUBLIC_KEY" --arg value "$MEISTER_PUBLIC_KEY" '. + {($key): $value}' "$PASSWORD_FILE")
 echo "$new_pass_file" >"$PASSWORD_FILE"
 
 echo "--- TARGETS"
 while [ $counter -le ${TARGET_COUNT} ]; do
-    echo "----- Adding MEISTER_PUBLIC_KEY to ${TARGET_BASE_NAME}${counter} ssh authorized keys"
-    dexec ${TARGET_BASE_NAME}${counter} "mkdir ~/.ssh/ && echo ${MEISTER_PUBLIC_KEY} >> ~/.ssh/authorized_keys"
-    echo "----- Adding ${TARGET_BASE_NAME}${counter} ssh key to known hosts"
-    dexec ansible_meister "ssh-keyscan ${TARGET_BASE_NAME}${counter} >> ~/.ssh/known_hosts"
-    ((counter++))
+  echo "----- Adding MEISTER_PUBLIC_KEY to ${TARGET_BASE_NAME}${counter} ssh authorized keys"
+  dexec ${TARGET_BASE_NAME}${counter} "mkdir ~/.ssh/ && echo ${MEISTER_PUBLIC_KEY} >> ~/.ssh/authorized_keys"
+  echo "----- Adding ${TARGET_BASE_NAME}${counter} ssh key to known hosts"
+  dexec ${MASTER_BASE_NAME} "ssh-keyscan ${TARGET_BASE_NAME}${counter} >> ~/.ssh/known_hosts"
+  ((counter++))
 done
 
-dexec ansible_meister "cat > ~/clone.sh" <<EOF
+echo "----- Adding this repo clone command to ${MASTER_BASE_NAME} root dir"
+dexec ${MASTER_BASE_NAME} "cat > ~/clone.sh" <<EOF
 #!/bin/bash
 git clone $GIT_REPO
 EOF
 
-dexec ansible_meister "echo $HOST_SSH_KEY > ~/.ssh/authorized_keys"
+echo "----- Adding this HOST_SSH_KEY to authorized_keys at ${MASTER_BASE_NAME}"
+dexec ${MASTER_BASE_NAME} "echo ${HOST_SSH_KEY} > ~/.ssh/authorized_keys"
+
+echo "----- Adding script to ssh to ${MASTER_BASE_NAME} > jump_to_${MASTER_BASE_NAME}.sh"
+cat <<EOF >>"jump_to_${MASTER_BASE_NAME}.sh" &&
+\
+#!/bin/bash
+ssh root@localhost -p ${ANSIBLE_SSH_PORT}
+EOF
+  chmod 700 jump_to_${MASTER_BASE_NAME}.sh
