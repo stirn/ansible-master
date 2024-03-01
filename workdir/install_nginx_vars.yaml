@@ -35,5 +35,5 @@
 
     - name: Copy file
       copy:
-        src: "{ { src_file } }"
-        dest: "{ { dst_file } }"
+        src: "{{src_file}}"
+        dest: "{{dst_file}}"
