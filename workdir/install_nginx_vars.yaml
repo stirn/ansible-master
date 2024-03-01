@@ -32,6 +32,7 @@
     - name: Print the version of nginx
       debug:
         msg: "--- The version of nginx is {{nginx_version}}"
+
     - name: Copy file
       copy:
         src: "{ { src_file } }"
