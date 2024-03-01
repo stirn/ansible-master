@@ -20,14 +20,14 @@
         name: nginx
         enabled: yes
 
-    - name: Get nginx installed version
-      command: nginx -v
-      register: nginx_version
-
     - name: Get status of nginx service
       service:
         name: nginx
         state: started
+
+    - name: Get nginx installed version
+      command: nginx -v
+      register: nginx_version
 
     - name: Print the version of nginx
       debug:
