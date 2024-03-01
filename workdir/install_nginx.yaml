@@ -21,3 +21,7 @@
       service:
         name: nginx
         state: started # Optional, checks if the service is running (default)
+    - name: Copy file
+      copy:
+        src: inventory.txt
+        dest: ~/inventory.txt
