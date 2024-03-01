@@ -18,4 +18,4 @@
     - name: Get nginx installed version
       command: nginx -v
     - name: Get status of nginx service
-      command: systemctl status nginx
+      command: service nginx status
