@@ -1,0 +1,10 @@
+# install meister ssh key
+- name: Install meister ssh keys to ziels
+  hosts: myservers
+  become: True
+  tasks:
+    - name: Copy SSH public key to authorized_keys
+      authorized_key:
+        user: root # Username for key access
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}" # Path to your public key
+        state: present # Ensure key is present in authorized_keys
