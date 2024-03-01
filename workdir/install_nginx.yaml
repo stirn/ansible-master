@@ -4,7 +4,7 @@
   become: True
   tasks:
     - name: Install the latest version of Nginx
-      command: apt update && apt -y install nginx
+      command: apt -y install nginx
       args:
         create: /sbin/nginx
     - name: Start nginx server
