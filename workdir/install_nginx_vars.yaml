@@ -1,0 +1,38 @@
+# install nginx using Ansible
+- name: Setup nginx server on my server list (host group)
+  hosts: myservers
+  become: True
+  vars:
+    src_file: "inventory.txt"
+    dst_file: "~/inventory.txt"
+  tasks:
+    - name: Install the latest version of Nginx
+      apt:
+        name: nginx
+        state: present
+    - name: Start nginx server
+      service:
+        name: nginx
+        state: started
+
+    - name: Enable nginx server
+      service:
+        name: nginx
+        enabled: yes
+
+    - name: Get nginx installed version
+      command: nginx -v
+      register: nginx_version
+
+    - name: Get status of nginx service
+      service:
+        name: nginx
+        state: started
+
+    - name: Print the version of nginx
+      debug:
+        msg: "--- The version of nginx is {{nginx_version}}"
+    - name: Copy file
+      copy:
+        src: "{ { src_file } }"
+        dest: "{ { dst_file } }"
