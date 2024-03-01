@@ -3,4 +3,5 @@ ansible_ziel1
 ansible_ziel2
 
 [myservers:vars]
-ansible_connection=ssh ansible_user=root
+ansible_connection=ssh
+ansible_user=root
