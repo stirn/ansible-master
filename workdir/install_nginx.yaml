@@ -18,4 +18,6 @@
     - name: Get nginx installed version
       command: nginx -v
     - name: Get status of nginx service
-      command: service nginx status
+      service:
+        name: nginx
+        state: started # Optional, checks if the service is running (default)
