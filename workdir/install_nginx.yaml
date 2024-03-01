@@ -1,0 +1,21 @@
+# install nginx using Ansible
+- name: Setup nginx server on my server list (host group)
+  hosts: myservers
+  become: True
+  tasks:
+    - name: Install the latest version of Nginx
+      command: apt update && apt -y install nginx
+      args:
+        create: /sbin/nginx
+    - name: Start nginx server
+      service:
+        name: nginx
+        state: started
+    - name: Enable nginx server
+      service:
+        name: nginx
+        enabled: yes
+    - name: Get nginx installed version
+      command: nginx -v
+    - name: Get status of nginx service
+      command: systemctl status nginx
